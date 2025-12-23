@@ -1,0 +1,7 @@
+[project]
+name = "iris-ebpf"
+version = "0.1.0"
+description = "an ebpf experiment project"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
