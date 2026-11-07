@@ -1,49 +1,56 @@
-.PHONY: help run clean install check test lint sync
+GO ?= go
+GOFMT ?= gofmt
+
+.PHONY: all help generate build fmt fmt-check lint test check clean run-xdp run-execve run-tcp
+
+all: check build
 
 help:
-	@echo "Available commands:"
-	@echo "  make run      - Run the eBPF tracer (requires sudo)"
-	@echo "  make sync     - Sync uv environment"
-	@echo "  make check    - Check if BCC is installed"
-	@echo "  make test     - Run a quick test"
-	@echo "  make clean    - Clean Python cache files"
-	@echo "  make lint     - Check Python code style"
+	@echo "cinnamon - modern eBPF learning lab & kernel probes"
+	@echo ""
+	@echo "Available targets:"
+	@echo "  make generate    - Compile C BPF programs and generate Go bindings via bpf2go"
+	@echo "  make build       - Build the cinnamon CLI binary (bin/cinnamon)"
+	@echo "  make fmt         - Format Go code using gofmt"
+	@echo "  make fmt-check   - Check Go code formatting"
+	@echo "  make lint        - Run static analysis (go vet)"
+	@echo "  make test        - Run unit tests with race detection"
+	@echo "  make check       - Run all gates: fmt-check, lint, test"
+	@echo "  make clean       - Remove built binaries and temporary artifacts"
+	@echo "  make run-xdp     - Run XDP packet counter (requires sudo)"
+	@echo "  make run-execve  - Run execve kprobe tracer (requires sudo)"
+	@echo "  make run-tcp     - Run TCP connection latency tracer (requires sudo)"
 
-run:
-	@echo "Starting eBPF tracer (requires root privileges)..."
-	sudo -E uv run python main.py
+generate:
+	$(GO) generate ./...
 
-sync:
-	@echo "Syncing uv environment with system site packages..."
-	uv venv --python /usr/bin/python3 --system-site-packages
-	@echo "Sync complete!"
+build:
+	@mkdir -p bin
+	$(GO) build -o bin/cinnamon ./cmd/cinnamon
 
-check:
-	@echo "Checking BCC installation..."
-	@uv run python -c "import bcc; print('BCC version:', bcc.__version__)" || \
-		(echo "ERROR: BCC not installed. Install with: sudo apt install python3-bcc"; exit 1)
-	@echo "Checking kernel headers..."
-	@ls /lib/modules/$$(uname -r)/build > /dev/null 2>&1 || \
-		(echo "WARNING: Kernel headers not found. Install with: sudo apt install linux-headers-$$(uname -r)"; exit 1)
-	@echo "All checks passed!"
+fmt:
+	$(GOFMT) -w cmd pkg
 
-test:
-	@echo "Testing BPF program compilation..."
-	@uv run python -c "from bcc import BPF; BPF(text='int dummy(void *ctx) { return 0; }')" && \
-		echo "Test passed!" || \
-		echo "Test failed!"
-
-clean:
-	@echo "Cleaning Python cache files..."
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	find . -type f -name "*.pyo" -delete 2>/dev/null || true
-	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
-	@echo "Clean complete!"
+fmt-check:
+	@files="$$($(GOFMT) -l cmd pkg)" || exit $$?; if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
 
 lint:
-	@echo "Checking Python code style..."
-	@command -v pylint >/dev/null 2>&1 && pylint main.py || \
-		(echo "pylint not installed. Install with: pip install pylint")
-	@command -v flake8 >/dev/null 2>&1 && flake8 main.py || \
-		(echo "flake8 not installed. Install with: pip install flake8")
+	$(GO) vet ./...
+	$(GO) mod verify
+
+test:
+	$(GO) test -v -race ./...
+
+check: fmt-check lint test
+
+clean:
+	rm -rf bin/
+
+run-xdp: build
+	sudo ./bin/cinnamon xdp
+
+run-execve: build
+	sudo ./bin/cinnamon execve
+
+run-tcp: build
+	sudo ./bin/cinnamon tcp
